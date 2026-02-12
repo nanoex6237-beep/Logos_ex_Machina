@@ -431,6 +431,7 @@ def analyze_text(
             "The object must be the direct object of the verb; do not include indirect objects. "
             "Make the notes detailed and explain grammar thoroughly. "
             "Include mood/tense/voice, case usage, clause type, and key particles where relevant. "
+            "Preserve Greek words exactly as they appear; do not transliterate or replace them with Japanese text. "
             "Use clause types such as: 主節, 従属節, 関係節, 条件節, 目的節, 時間節, "
             "分詞節, 独立絶対属格. "
             "The id must be a clause type plus number (e.g., 従属節 1, 主節 1)."
