@@ -208,7 +208,12 @@ def analyze_text(
     if mode == "translate":
         system = (
             "You are a classical Greek translator. "
-            "Use the LSJ entries as preferred lexical guidance." 
+            "Use the LSJ entries as preferred lexical guidance. "
+            "Reflect tense and aspect naturally in the translation. "
+            "Present participles should convey ongoing or continuous action. "
+            "Aorist should convey completed action. "
+            "Perfect should convey a resulting state. "
+            "Imperfect should convey ongoing or repeated past action."
         )
         user = (
             f"Translate the following Greek text into {target_lang}.\n\n"
@@ -274,7 +279,10 @@ def analyze_text(
     if mode == "grammar":
         system = (
             "You analyze Greek syntax (SVO and grammar). "
-            "Return JSON with keys: structures (array) and notes (string). "
+            "If the input contains multiple clauses, split it into clauses and "
+            "analyze each clause separately. "
+            "Return JSON with key: clauses (array). "
+            "Each clause item must have: id, text, structures, notes. "
             "Each structure item should have: subject, verb, object, extras."
         )
         user = (
@@ -287,23 +295,35 @@ def analyze_text(
         schema = {
             "type": "object",
             "properties": {
-                "structures": {
+                "clauses": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "subject": {"type": "string"},
-                            "verb": {"type": "string"},
-                            "object": {"type": "string"},
-                            "extras": {"type": "string"},
+                            "id": {"type": "string"},
+                            "text": {"type": "string"},
+                            "structures": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "subject": {"type": "string"},
+                                        "verb": {"type": "string"},
+                                        "object": {"type": "string"},
+                                        "extras": {"type": "string"},
+                                    },
+                                    "required": ["subject", "verb", "object", "extras"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                            "notes": {"type": "string"},
                         },
-                        "required": ["subject", "verb", "object", "extras"],
+                        "required": ["id", "text", "structures", "notes"],
                         "additionalProperties": False,
                     },
                 },
-                "notes": {"type": "string"},
             },
-            "required": ["structures", "notes"],
+            "required": ["clauses"],
             "additionalProperties": False,
         }
         data = openai_json_response(client, model, system, user, schema)
@@ -383,8 +403,21 @@ def main() -> None:
                     )
                 try:
                     data = json.loads(result)
-                    st.table(data.get("structures", []))
-                    st.markdown(data.get("notes", ""))
+                    clauses = data.get("clauses")
+                    if isinstance(clauses, list):
+                        for clause in clauses:
+                            clause_id = clause.get("id", "Clause")
+                            clause_text = clause.get("text", "")
+                            st.subheader(clause_id)
+                            if clause_text:
+                                st.markdown(clause_text)
+                            st.table(clause.get("structures", []))
+                            notes = clause.get("notes", "")
+                            if notes:
+                                st.markdown(notes)
+                    else:
+                        st.table(data.get("structures", []))
+                        st.markdown(data.get("notes", ""))
                 except Exception:
                     st.markdown(result)
 
