@@ -376,6 +376,7 @@ def analyze_text(
             "Analyze only the provided clause and do not split it further. "
             "Return JSON with keys: id, text, structures, notes. "
             "Each structure item should have: subject, verb, object, extras. "
+            "The object must be the direct object of the verb; do not include indirect objects. "
             "Make the notes detailed and explain grammar thoroughly. "
             "Include mood/tense/voice, case usage, clause type, and key particles where relevant. "
             "Use clause types such as: 主節, 従属節, 関係節, 条件節, 目的節, 時間節, "
