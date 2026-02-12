@@ -15,8 +15,7 @@ LSJ_SNIPPET_LEN = 600
 MODEL_NAME = "gpt-4o"
 
 CREDIT_TEXT = (
-    "LSJLogeion data: please credit Perseus Tufts and Helma Dik/Logeion. "
-    "Issues welcome."
+    "using LSJ Data provided by Perseus Tufts and edited by Helma Dik/Logeion.. "
 )
 
 
@@ -37,7 +36,7 @@ def get_api_key() -> Optional[str]:
 
 @st.cache_resource
 def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -72,13 +71,13 @@ def openai_json_response(client: OpenAI, model: str, system: str, user: str, sch
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
+        text={
+            "format": {
+                "type": "json_schema",
                 "name": "response",
                 "schema": schema,
                 "strict": True,
-            },
+            }
         },
     )
     text = response_text(response)
