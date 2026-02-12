@@ -436,7 +436,7 @@ def analyze_text(
             "Make the notes detailed and explain grammar thoroughly. "
             "Include mood/tense/voice, case usage, clause type, and key particles where relevant. "
             "Preserve Greek words exactly as they appear; do not transliterate or replace them with Japanese text. "
-            "If any of subject, verb, object, or extras is not applicable, set it to an empty string."
+            "If any of subject, verb, object, or extras is not applicable, set it to an empty string. "
             "Use clause types such as: 主節, 従属節, 関係節, 条件節, 目的節, 時間節, "
             "分詞節, 独立絶対属格. "
             "The id must be a clause type plus number (e.g., 従属節 1, 主節 1)."
@@ -484,6 +484,12 @@ def analyze_text(
         clause_texts = [c.get("text", "") for c in segment_data.get("clauses", []) if c]
         if not clause_texts:
             clause_texts = [text]
+        if targets:
+            clause_texts = [
+                ct for ct in clause_texts if any(t in ct for t in targets)
+            ]
+            if not clause_texts:
+                return json.dumps({"clauses": []}, ensure_ascii=False)
 
         results = []
         for idx, clause_text in enumerate(clause_texts, start=1):
@@ -498,6 +504,13 @@ def analyze_text(
             data = openai_json_response(
                 client, model, analyze_system, analyze_user, analyze_schema
             )
+            structures = data.get("structures", [])
+            for structure in structures:
+                structure.setdefault("subject", "")
+                structure.setdefault("verb", "")
+                structure.setdefault("object", "")
+                structure.setdefault("extras", "")
+            data["structures"] = structures
             results.append(data)
 
         return json.dumps({"clauses": results}, ensure_ascii=False)
