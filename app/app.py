@@ -597,16 +597,50 @@ def main() -> None:
                     data = json.loads(result)
                     clauses = data.get("clauses")
                     if isinstance(clauses, list):
+                        csv_rows: List[Dict[str, str]] = []
                         for idx, clause in enumerate(clauses):
                             clause_text = clause.get("text", "")
                             if clause_text:
                                 st.markdown(clause_text)
-                            st.table(clause.get("structures", []))
+                            structures = clause.get("structures", [])
+                            st.table(structures)
                             notes = clause.get("notes", "")
                             if notes:
                                 st.markdown(notes)
+                            for structure in structures or [{}]:
+                                csv_rows.append(
+                                    {
+                                        "clause_index": str(idx + 1),
+                                        "clause_text": clause_text,
+                                        "notes": notes,
+                                        "subject": structure.get("subject", ""),
+                                        "verb": structure.get("verb", ""),
+                                        "object": structure.get("object", ""),
+                                        "extras": structure.get("extras", ""),
+                                    }
+                                )
                             if idx != len(clauses) - 1:
                                 st.divider()
+                        if csv_rows:
+                            csv_bytes = rows_to_csv_bytes(
+                                csv_rows,
+                                [
+                                    "clause_index",
+                                    "clause_text",
+                                    "subject",
+                                    "verb",
+                                    "object",
+                                    "extras",
+                                    "notes",
+                                ],
+                            )
+                            st.download_button(
+                                "Download CSV",
+                                csv_bytes,
+                                file_name="grammar.csv",
+                                mime="text/csv",
+                                use_container_width=True,
+                            )
                     else:
                         st.table(data.get("structures", []))
                         st.markdown(data.get("notes", ""))
