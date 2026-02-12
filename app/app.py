@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
+from cltk import NLP
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -32,6 +33,11 @@ def load_env() -> None:
 
 def get_api_key() -> Optional[str]:
     return os.getenv("OPENAI_API_KEY")
+
+
+@st.cache_resource
+def get_cltk_nlp() -> NLP:
+    return NLP(language_code="grc")
 
 
 @st.cache_resource
@@ -94,53 +100,56 @@ def lemmatize_and_betacode(
     if len(uniq) > 50:
         uniq = uniq[:50]
 
-    system = (
-        "You are a classical Greek linguistics assistant. "
-        "Given Greek word forms, return the lemma (dictionary headword) "
-        "and the corresponding Beta Code for that lemma. "
-        "Use standard Perseus/LSJ Beta Code conventions."
-    )
-    user = (
-        "Return lemma and beta_code for each surface form. "
-        "If unsure, provide your best guess.\n\n"
-        f"Surface forms: {', '.join(uniq)}"
-    )
+    nlp = get_cltk_nlp()
+    doc = nlp.analyze(" ".join(uniq))
 
-    schema = {
-        "type": "object",
-        "properties": {
-            "items": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "surface": {"type": "string"},
-                        "lemma": {"type": "string"},
-                        "beta_code": {"type": "string"},
-                    },
-                    "required": ["surface", "lemma", "beta_code"],
-                    "additionalProperties": False,
-                },
-            }
-        },
-        "required": ["items"],
-        "additionalProperties": False,
-    }
-
-    try:
-        data = openai_json_response(client, model, system, user, schema)
-    except Exception:
-        return []
-
-    items = []
-    for item in data.get("items", []):
-        items.append(
-            LemmaItem(
-                surface=item.get("surface", ""),
-                lemma=item.get("lemma", ""),
-                beta_code=item.get("beta_code", ""),
-            )
+    lemmas_by_surface: Dict[str, List[str]] = {t: [] for t in uniq}
+    for word in getattr(doc, "words", []) or []:
+        surface = (
+            getattr(word, "string", None)
+            or getattr(word, "form", None)
+            or getattr(word, "text", None)
         )
+        if not surface or surface not in lemmas_by_surface:
+            continue
+        candidates: List[str] = []
+        lemma = getattr(word, "lemma", None)
+        if lemma:
+            candidates.append(str(lemma))
+        lemmas = getattr(word, "lemmas", None)
+        if lemmas:
+            for lval in lemmas:
+                if lval:
+                    candidates.append(str(lval))
+        seen = set()
+        for cand in candidates:
+            if cand not in seen:
+                lemmas_by_surface[surface].append(cand)
+                seen.add(cand)
+
+    all_lemmas = [
+        lemma
+        for lemma_list in lemmas_by_surface.values()
+        for lemma in lemma_list
+        if lemma
+    ]
+    conn = get_db()
+    beta_by_lemma = beta_lookup_by_headword(conn, all_lemmas)
+
+    items: List[LemmaItem] = []
+    for surface in uniq:
+        lemmas = lemmas_by_surface.get(surface) or []
+        if not lemmas:
+            items.append(LemmaItem(surface=surface, lemma="未解析", beta_code=""))
+            continue
+        for lemma in lemmas:
+            items.append(
+                LemmaItem(
+                    surface=surface,
+                    lemma=lemma,
+                    beta_code=beta_by_lemma.get(lemma, ""),
+                )
+            )
     return items
 
 
@@ -166,6 +175,30 @@ def beta_lookup(conn: sqlite3.Connection, betacodes: List[str]) -> Dict[str, Dic
             "beta_code": row["beta_code"],
             "snippet": row["snippet"],
         }
+    return out
+
+
+def beta_lookup_by_headword(
+    conn: sqlite3.Connection, headwords: List[str]
+) -> Dict[str, str]:
+    headwords = [h for h in headwords if h]
+    if not headwords:
+        return {}
+
+    uniq = list(dict.fromkeys(headwords))
+    placeholders = ",".join(["?"] * len(uniq))
+    query = (
+        f"SELECT headword, beta_code FROM dictionary WHERE headword IN ({placeholders})"
+    )
+    cur = conn.cursor()
+    cur.execute(query, uniq)
+    rows = cur.fetchall()
+
+    out: Dict[str, str] = {}
+    for row in rows:
+        headword = row["headword"]
+        if headword not in out:
+            out[headword] = row["beta_code"]
     return out
 
 
