@@ -1,8 +1,8 @@
-﻿import glob
+import glob
 import os
 import sqlite3
 import sys
-from lxml import etree
+import xml.etree.ElementTree as ET
 
 DATA_GLOB = os.path.join("data", "LSJLogeion-master", "*.xml")
 DB_PATH = os.path.join("data", "lsj.db")
@@ -21,6 +21,44 @@ def clean_text(text: str) -> str:
     return " ".join(text.split())
 
 
+def to_roman(num: int) -> str:
+    vals = [
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ]
+    out = []
+    for v, sym in vals:
+        while num >= v:
+            out.append(sym)
+            num -= v
+    return "".join(out) if out else "I"
+
+
+def label_for_counters(counters: list[int]) -> str:
+    parts = []
+    for idx, val in enumerate(counters):
+        if idx == 0:
+            parts.append(to_roman(val))
+        elif idx == 1:
+            parts.append(chr(ord("A") + val - 1))
+        elif idx == 2:
+            parts.append(chr(ord("a") + val - 1))
+        else:
+            parts.append(str(val))
+    return ".".join(parts)
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     cur = conn.cursor()
     cur.execute(
@@ -33,18 +71,32 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE senses (
+            id INTEGER PRIMARY KEY,
+            entry_id INTEGER,
+            sense_id TEXT,
+            level INTEGER,
+            label TEXT,
+            content TEXT
+        )
+        """
+    )
     cur.execute("CREATE INDEX idx_dictionary_headword ON dictionary(headword)")
     cur.execute("CREATE INDEX idx_dictionary_beta_code ON dictionary(beta_code)")
+    cur.execute("CREATE INDEX idx_senses_entry_id ON senses(entry_id)")
+    cur.execute("CREATE INDEX idx_senses_label ON senses(label)")
     conn.commit()
 
 
 def process_file(conn: sqlite3.Connection, path: str, total_counter: int) -> int:
     cur = conn.cursor()
-    batch = []
+    sense_batch = []
 
     print(f"Processing {os.path.basename(path)}...", flush=True)
 
-    context = etree.iterparse(path, events=("end",), recover=True, huge_tree=True)
+    context = ET.iterparse(path, events=("end",))
     for _event, elem in context:
         if local_name(elem.tag) != "div2":
             continue
@@ -70,29 +122,54 @@ def process_file(conn: sqlite3.Connection, path: str, total_counter: int) -> int
 
         full_content = clean_text("".join(elem.itertext()))
 
-        batch.append((headword, beta, full_content))
+        cur.execute(
+            "INSERT INTO dictionary (headword, beta_code, full_content) VALUES (?, ?, ?)",
+            (headword, beta, full_content),
+        )
+        entry_id = cur.lastrowid
+
+        counters: list[int] = []
+        for sense in elem.findall(".//sense"):
+            level_raw = sense.get("level") or "1"
+            try:
+                level = max(1, int(level_raw))
+            except ValueError:
+                level = 1
+
+            if len(counters) < level:
+                counters.extend([0] * (level - len(counters)))
+            elif len(counters) > level:
+                counters = counters[:level]
+
+            counters[level - 1] += 1
+            label = label_for_counters(counters)
+
+            sense_text = clean_text("".join(sense.itertext()))
+            sense_batch.append(
+                (entry_id, sense.get("id") or "", level, label, sense_text)
+            )
+
         total_counter += 1
 
         if total_counter % BATCH_SIZE == 0:
-            cur.executemany(
-                "INSERT INTO dictionary (headword, beta_code, full_content) VALUES (?, ?, ?)",
-                batch,
-            )
+            if sense_batch:
+                cur.executemany(
+                    "INSERT INTO senses (entry_id, sense_id, level, label, content) VALUES (?, ?, ?, ?, ?)",
+                    sense_batch,
+                )
             conn.commit()
-            batch.clear()
+            sense_batch.clear()
             print(f"Processed entries: {total_counter}", flush=True)
 
         elem.clear()
-        while elem.getprevious() is not None:
-            del elem.getparent()[0]
 
-    if batch:
+    if sense_batch:
         cur.executemany(
-            "INSERT INTO dictionary (headword, beta_code, full_content) VALUES (?, ?, ?)",
-            batch,
+            "INSERT INTO senses (entry_id, sense_id, level, label, content) VALUES (?, ?, ?, ?, ?)",
+            sense_batch,
         )
         conn.commit()
-        batch.clear()
+        sense_batch.clear()
 
     return total_counter
 
