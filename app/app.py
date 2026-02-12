@@ -348,51 +348,63 @@ def analyze_text(
         return json.dumps(data, ensure_ascii=False)
 
     if mode == "grammar":
-        system = (
-            "You analyze Greek syntax (SVO and grammar). "
+        segment_system = (
             "You are given candidate clause segments. "
             "Merge adjacent candidates when needed to form correct clauses. "
             "Do not reorder candidates and do not create text outside candidates. "
             "Return JSON with key: clauses (array). "
-            "Each clause item must have: id, text, structures, notes. "
-            "Each structure item should have: subject, verb, object, extras. "
-            "Use clause types such as: 主節, 従属節, 関係節, 条件節, 目的節, 時間節, "
-            "分詞節, 独立絶対属格. "
-            "The id must be a clause type plus number (e.g., 従属節 1, 主節 1). "
-            "Order clauses in the original text order."
+            "Each clause item must have: text."
         )
-        schema = {
+        segment_schema = {
             "type": "object",
             "properties": {
                 "clauses": {
                     "type": "array",
                     "items": {
                         "type": "object",
+                        "properties": {"text": {"type": "string"}},
+                        "required": ["text"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["clauses"],
+            "additionalProperties": False,
+        }
+
+        analyze_system = (
+            "You analyze Greek syntax (SVO and grammar). "
+            "Analyze only the provided clause and do not split it further. "
+            "Return JSON with keys: id, text, structures, notes. "
+            "Each structure item should have: subject, verb, object, extras. "
+            "Make the notes detailed and explain grammar thoroughly. "
+            "Include mood/tense/voice, case usage, clause type, and key particles where relevant. "
+            "Use clause types such as: 主節, 従属節, 関係節, 条件節, 目的節, 時間節, "
+            "分詞節, 独立絶対属格. "
+            "The id must be a clause type plus number (e.g., 従属節 1, 主節 1)."
+        )
+        analyze_schema = {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "text": {"type": "string"},
+                "structures": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
                         "properties": {
-                            "id": {"type": "string"},
-                            "text": {"type": "string"},
-                            "structures": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "subject": {"type": "string"},
-                                        "verb": {"type": "string"},
-                                        "object": {"type": "string"},
-                                        "extras": {"type": "string"},
-                                    },
-                                    "required": ["subject", "verb", "object", "extras"],
-                                    "additionalProperties": False,
-                                },
-                            },
-                            "notes": {"type": "string"},
+                            "subject": {"type": "string"},
+                            "verb": {"type": "string"},
+                            "object": {"type": "string"},
+                            "extras": {"type": "string"},
                         },
-                        "required": ["id", "text", "structures", "notes"],
+                        "required": ["subject", "verb", "object", "extras"],
                         "additionalProperties": False,
                     },
                 },
+                "notes": {"type": "string"},
             },
-            "required": ["clauses"],
+            "required": ["id", "text", "structures", "notes"],
             "additionalProperties": False,
         }
 
@@ -400,18 +412,35 @@ def analyze_text(
         candidate_lines = "\n".join(
             [f"{i}. {c}" for i, c in enumerate(candidates, start=1)]
         )
-        user = (
-            f"Analyze syntax for the following Greek text. Explain in {target_lang}.\n\n"
+        segment_user = (
             f"Original text:\n{text}\n\n"
             f"Candidate segments (in order):\n{candidate_lines}\n\n"
             f"Rules: Use only these candidates by concatenating adjacent ones. "
-            f"Do not reorder, do not omit content.\n\n"
-            f"If specific target words are provided, focus only on them.\n"
-            f"Targets: {', '.join(targets) if targets else '(none)'}\n\n"
-            f"LSJ context:\n{lsj_context}"
+            f"Do not reorder, do not omit content."
         )
-        data = openai_json_response(client, model, system, user, schema)
-        return json.dumps(data, ensure_ascii=False)
+        segment_data = openai_json_response(
+            client, model, segment_system, segment_user, segment_schema
+        )
+        clause_texts = [c.get("text", "") for c in segment_data.get("clauses", []) if c]
+        if not clause_texts:
+            clause_texts = [text]
+
+        results = []
+        for idx, clause_text in enumerate(clause_texts, start=1):
+            analyze_user = (
+                f"Analyze syntax for the following Greek clause. Explain in {target_lang}.\n\n"
+                f"Clause:\n{clause_text}\n\n"
+                f"If specific target words are provided, focus only on them.\n"
+                f"Targets: {', '.join(targets) if targets else '(none)'}\n\n"
+                f"LSJ context:\n{lsj_context}\n\n"
+                f"Use clause number {idx} in the id."
+            )
+            data = openai_json_response(
+                client, model, analyze_system, analyze_user, analyze_schema
+            )
+            results.append(data)
+
+        return json.dumps({"clauses": results}, ensure_ascii=False)
 
     return ""
 
@@ -489,16 +518,16 @@ def main() -> None:
                     data = json.loads(result)
                     clauses = data.get("clauses")
                     if isinstance(clauses, list):
-                        for clause in clauses:
-                            clause_id = clause.get("id", "Clause")
+                        for idx, clause in enumerate(clauses):
                             clause_text = clause.get("text", "")
-                            st.subheader(clause_id)
                             if clause_text:
                                 st.markdown(clause_text)
                             st.table(clause.get("structures", []))
                             notes = clause.get("notes", "")
                             if notes:
                                 st.markdown(notes)
+                            if idx != len(clauses) - 1:
+                                st.divider()
                     else:
                         st.table(data.get("structures", []))
                         st.markdown(data.get("notes", ""))
