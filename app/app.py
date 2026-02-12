@@ -69,23 +69,7 @@ CLAUSE_BOUNDARY_TOKENS = {
     "ὅ",
 }
 
-CLAUSE_SPLIT_PUNCT = re.compile(r"[;,·;]")
-
-PARTICIPLE_ENDINGS = re.compile(
-    r"(μενος|μένη|μένον|μενοι|μεναι|μενα|μένου|μένης|μένων|"
-    r"ουσα|ουσαι|οντες|οντα|οντος|ομένη|ομένου|όμενος|όμενοι|όμενα)$"
-)
-
-
-def _is_participle_clause(text: str) -> bool:
-    tokens = [t for t in re.split(r"\s+", text.strip()) if t]
-    if not tokens:
-        return False
-    for tok in tokens:
-        clean = re.sub(r"^[\W_]+|[\W_]+$", "", tok)
-        if PARTICIPLE_ENDINGS.search(clean):
-            return True
-    return False
+CLAUSE_SPLIT_PUNCT = re.compile(r"[,;·;]")
 
 
 def split_clauses(text: str) -> List[str]:
@@ -93,35 +77,22 @@ def split_clauses(text: str) -> List[str]:
     if not cleaned:
         return []
 
-    comma_parts = [p.strip() for p in CLAUSE_SPLIT_PUNCT.split(cleaned) if p.strip()]
-    if len(comma_parts) > 1:
-        participle_parts: List[str] = []
-        main_parts: List[str] = []
-        for part in comma_parts:
-            if _is_participle_clause(part):
-                participle_parts.append(part)
-            else:
-                main_parts.append(part)
-        clauses: List[str] = []
-        clauses.extend(participle_parts)
-        if main_parts:
-            clauses.append(", ".join(main_parts))
-        return clauses
-
-    tokens = cleaned.split(" ")
+    parts = [p.strip() for p in CLAUSE_SPLIT_PUNCT.split(cleaned) if p.strip()]
     clauses: List[str] = []
-    start = 0
-    for idx, tok in enumerate(tokens):
-        if idx == 0:
-            continue
-        if tok in CLAUSE_BOUNDARY_TOKENS:
-            chunk = " ".join(tokens[start:idx]).strip()
-            if chunk:
-                clauses.append(chunk)
-            start = idx
-    tail = " ".join(tokens[start:]).strip()
-    if tail:
-        clauses.append(tail)
+    for part in parts:
+        tokens = part.split(" ")
+        start = 0
+        for idx, tok in enumerate(tokens):
+            if idx == 0:
+                continue
+            if tok in CLAUSE_BOUNDARY_TOKENS:
+                chunk = " ".join(tokens[start:idx]).strip()
+                if chunk:
+                    clauses.append(chunk)
+                start = idx
+        tail = " ".join(tokens[start:]).strip()
+        if tail:
+            clauses.append(tail)
     return [c for c in clauses if c]
 
 def response_text(response) -> str:
@@ -379,53 +350,68 @@ def analyze_text(
     if mode == "grammar":
         system = (
             "You analyze Greek syntax (SVO and grammar). "
-            "Analyze only the provided clause and do not split it further. "
-            "Return JSON with keys: id, text, structures, notes. "
+            "You are given candidate clause segments. "
+            "Merge adjacent candidates when needed to form correct clauses. "
+            "Do not reorder candidates and do not create text outside candidates. "
+            "Return JSON with key: clauses (array). "
+            "Each clause item must have: id, text, structures, notes. "
             "Each structure item should have: subject, verb, object, extras. "
             "Use clause types such as: 主節, 従属節, 関係節, 条件節, 目的節, 時間節, "
             "分詞節, 独立絶対属格. "
-            "The id must be a clause type plus number (e.g., 従属節 1, 主節 1)."
+            "The id must be a clause type plus number (e.g., 従属節 1, 主節 1). "
+            "Order clauses in the original text order."
         )
         schema = {
             "type": "object",
             "properties": {
-                "id": {"type": "string"},
-                "text": {"type": "string"},
-                "structures": {
+                "clauses": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "subject": {"type": "string"},
-                            "verb": {"type": "string"},
-                            "object": {"type": "string"},
-                            "extras": {"type": "string"},
+                            "id": {"type": "string"},
+                            "text": {"type": "string"},
+                            "structures": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "subject": {"type": "string"},
+                                        "verb": {"type": "string"},
+                                        "object": {"type": "string"},
+                                        "extras": {"type": "string"},
+                                    },
+                                    "required": ["subject", "verb", "object", "extras"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                            "notes": {"type": "string"},
                         },
-                        "required": ["subject", "verb", "object", "extras"],
+                        "required": ["id", "text", "structures", "notes"],
                         "additionalProperties": False,
                     },
                 },
-                "notes": {"type": "string"},
             },
-            "required": ["id", "text", "structures", "notes"],
+            "required": ["clauses"],
             "additionalProperties": False,
         }
 
-        clauses = split_clauses(text) or [text]
-        results = []
-        for idx, clause_text in enumerate(clauses, start=1):
-            user = (
-                f"Analyze syntax for the following Greek clause. Explain in {target_lang}.\n\n"
-                f"Clause:\n{clause_text}\n\n"
-                f"If specific target words are provided, focus only on them.\n"
-                f"Targets: {', '.join(targets) if targets else '(none)'}\n\n"
-                f"LSJ context:\n{lsj_context}\n\n"
-                f"Use clause number {idx} in the id."
-            )
-            data = openai_json_response(client, model, system, user, schema)
-            results.append(data)
-
-        return json.dumps({"clauses": results}, ensure_ascii=False)
+        candidates = split_clauses(text) or [text]
+        candidate_lines = "\n".join(
+            [f"{i}. {c}" for i, c in enumerate(candidates, start=1)]
+        )
+        user = (
+            f"Analyze syntax for the following Greek text. Explain in {target_lang}.\n\n"
+            f"Original text:\n{text}\n\n"
+            f"Candidate segments (in order):\n{candidate_lines}\n\n"
+            f"Rules: Use only these candidates by concatenating adjacent ones. "
+            f"Do not reorder, do not omit content.\n\n"
+            f"If specific target words are provided, focus only on them.\n"
+            f"Targets: {', '.join(targets) if targets else '(none)'}\n\n"
+            f"LSJ context:\n{lsj_context}"
+        )
+        data = openai_json_response(client, model, system, user, schema)
+        return json.dumps(data, ensure_ascii=False)
 
     return ""
 
