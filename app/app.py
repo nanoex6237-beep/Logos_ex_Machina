@@ -283,7 +283,13 @@ def analyze_text(
             "analyze each clause separately. "
             "Return JSON with key: clauses (array). "
             "Each clause item must have: id, text, structures, notes. "
-            "Each structure item should have: subject, verb, object, extras."
+            "Each structure item should have: subject, verb, object, extras. "
+            "Prefer clause boundaries introduced by conjunctions and relative pronouns "
+            "(e.g., ὅτι, ἵνα, ὡς, ἐπεί, ὅτε, εἰ, ὅς). "
+            "Use clause types such as: 主節, 従属節, 関係節, 条件節, 目的節, 時間節, "
+            "分詞節, 独立絶対属格. "
+            "Order clauses in the original text order. "
+            "The id must be a clause type plus number (e.g., 従属節 1, 主節 1)."
         )
         user = (
             f"Analyze syntax for the following Greek text. Explain in {target_lang}.\n\n"
