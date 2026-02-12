@@ -343,6 +343,8 @@ def analyze_text(
             f"Text:\n{text}\n\n"
             f"LSJ context:\n{lsj_context}"
         )
+        if target_lang == "Japanese":
+            system += " Respond strictly in Japanese."
         response = client.responses.create(
             model=model,
             input=[
@@ -366,6 +368,8 @@ def analyze_text(
             f"Targets: {', '.join(targets) if targets else '(none)'}\n\n"
             f"LSJ context:\n{lsj_context}"
         )
+        if target_lang == "Japanese":
+            system += " Respond strictly in Japanese for gloss and notes."
         schema = {
             "type": "object",
             "properties": {
@@ -432,10 +436,13 @@ def analyze_text(
             "Make the notes detailed and explain grammar thoroughly. "
             "Include mood/tense/voice, case usage, clause type, and key particles where relevant. "
             "Preserve Greek words exactly as they appear; do not transliterate or replace them with Japanese text. "
+            "If any of subject, verb, object, or extras is not applicable, set it to an empty string."
             "Use clause types such as: 主節, 従属節, 関係節, 条件節, 目的節, 時間節, "
             "分詞節, 独立絶対属格. "
             "The id must be a clause type plus number (e.g., 従属節 1, 主節 1)."
         )
+        if target_lang == "Japanese":
+            analyze_system += " Respond strictly in Japanese for notes."
         analyze_schema = {
             "type": "object",
             "properties": {
