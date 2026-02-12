@@ -1,4 +1,6 @@
-﻿import json
+﻿import csv
+import io
+import json
 import os
 import re
 import sqlite3
@@ -109,6 +111,21 @@ def response_text(response) -> str:
     return "\n".join(parts).strip()
 
 
+def rows_to_csv_bytes(rows: List[Dict[str, str]], headers: List[str]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=headers,
+        extrasaction="ignore",
+        quoting=csv.QUOTE_ALL,
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue().encode("utf-8-sig")
+
+
 def render_copy_button(text: str, label: str = "Copy") -> None:
     if not text:
         return
@@ -133,6 +150,15 @@ def render_copy_button(text: str, label: str = "Copy") -> None:
     </script>
     """
     components.html(html, height=40)
+
+
+def rows_to_csv(rows: List[Dict[str, str]], headers: List[str]) -> str:
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=headers, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue()
 
 def openai_json_response(client: OpenAI, model: str, system: str, user: str, schema: dict) -> dict:
     response = client.responses.create(
@@ -530,11 +556,33 @@ def main() -> None:
                     result = analyze_text(
                         client, model, "morphology", text, targets, target_lang
                     )
-                try:
-                    data = json.loads(result)
-                    st.table(data.get("rows", []))
-                except Exception:
-                    st.markdown(result)
+                st.session_state["morph_result"] = result
+
+        morph_result = st.session_state.get("morph_result")
+        if morph_result:
+            try:
+                data = json.loads(morph_result)
+                rows = data.get("rows", [])
+                st.table(rows)
+                if rows:
+                    headers = [
+                        "surface",
+                        "lemma",
+                        "beta_code",
+                        "part_of_speech",
+                        "inflection",
+                        "gloss",
+                    ]
+                    csv_bytes = rows_to_csv_bytes(rows, headers)
+                    st.download_button(
+                        "Download CSV",
+                        csv_bytes,
+                        file_name="morphology.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+            except Exception:
+                st.markdown(morph_result)
 
     with tab_grammar:
         if st.button("Analyze Grammar", use_container_width=True):
@@ -570,3 +618,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
