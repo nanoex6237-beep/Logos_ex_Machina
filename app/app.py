@@ -540,6 +540,8 @@ def main() -> None:
     tab_translate, tab_morph, tab_grammar = st.tabs(["翻訳", "活用", "文法"])
 
     with tab_translate:
+        if st.button("Clear Translation", use_container_width=True):
+            st.session_state.pop("translate_result", None)
         if st.button("Translate", use_container_width=True):
             if not text.strip():
                 st.error("Please enter Greek text.")
@@ -556,6 +558,8 @@ def main() -> None:
             render_copy_button(translate_result, label="Copy Translation")
 
     with tab_morph:
+        if st.button("Clear Morphology", use_container_width=True):
+            st.session_state.pop("morph_result", None)
         if st.button("Analyze Morphology", use_container_width=True):
             if not text.strip():
                 st.error("Please enter Greek text.")
@@ -593,6 +597,8 @@ def main() -> None:
                 st.markdown(morph_result)
 
     with tab_grammar:
+        if st.button("Clear Grammar", use_container_width=True):
+            st.session_state.pop("grammar_result", None)
         if st.button("Analyze Grammar", use_container_width=True):
             if not text.strip():
                 st.error("Please enter Greek text.")
