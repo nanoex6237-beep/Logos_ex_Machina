@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
+import streamlit.components.v1 as components
 from cltk import NLP
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -107,6 +108,31 @@ def response_text(response) -> str:
                     parts.append(getattr(content, "text", ""))
     return "\n".join(parts).strip()
 
+
+def render_copy_button(text: str, label: str = "Copy") -> None:
+    if not text:
+        return
+    safe = json.dumps(text)
+    html = f"""
+    <button id="copy-btn" style="padding:6px 12px; border:1px solid #ccc; background:#f7f7f7; cursor:pointer;">
+      {label}
+    </button>
+    <script>
+      const btn = document.getElementById("copy-btn");
+      const text = {safe};
+      btn.addEventListener("click", async () => {{
+        try {{
+          await navigator.clipboard.writeText(text);
+          btn.textContent = "Copied";
+          setTimeout(() => btn.textContent = "{label}", 1200);
+        }} catch (e) {{
+          btn.textContent = "Failed";
+          setTimeout(() => btn.textContent = "{label}", 1200);
+        }}
+      }});
+    </script>
+    """
+    components.html(html, height=40)
 
 def openai_json_response(client: OpenAI, model: str, system: str, user: str, schema: dict) -> dict:
     response = client.responses.create(
@@ -488,7 +514,12 @@ def main() -> None:
                     result = analyze_text(
                         client, model, "translate", text, targets, target_lang
                     )
-                st.markdown(result)
+                st.session_state["translate_result"] = result
+
+        translate_result = st.session_state.get("translate_result")
+        if translate_result:
+            st.markdown(translate_result)
+            render_copy_button(translate_result, label="Copy Translation")
 
     with tab_morph:
         if st.button("Analyze Morphology", use_container_width=True):
