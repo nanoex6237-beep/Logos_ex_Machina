@@ -350,8 +350,7 @@ def analyze_text(
     if mode == "grammar":
         segment_system = (
             "You are given candidate clause segments. "
-            "Merge adjacent candidates when needed to form correct clauses. "
-            "Do not reorder candidates and do not create text outside candidates. "
+            "Do not merge or reorder candidates and do not create text outside candidates. "
             "Return JSON with key: clauses (array). "
             "Each clause item must have: text."
         )
@@ -415,8 +414,8 @@ def analyze_text(
         segment_user = (
             f"Original text:\n{text}\n\n"
             f"Candidate segments (in order):\n{candidate_lines}\n\n"
-            f"Rules: Use only these candidates by concatenating adjacent ones. "
-            f"Do not reorder, do not omit content."
+            f"Rules: Use only these candidates as-is. "
+            f"Do not merge, do not reorder, do not omit content."
         )
         segment_data = openai_json_response(
             client, model, segment_system, segment_user, segment_schema
