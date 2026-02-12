@@ -292,6 +292,37 @@ def beta_lookup_by_headword(
     return out
 
 
+def sense_lookup_by_headword(
+    conn: sqlite3.Connection, headwords: List[str]
+) -> Dict[str, List[Dict[str, str]]]:
+    headwords = [h for h in headwords if h]
+    if not headwords:
+        return {}
+
+    uniq = list(dict.fromkeys(headwords))
+    placeholders = ",".join(["?"] * len(uniq))
+    query = (
+        "SELECT d.headword, s.label, s.content "
+        "FROM senses s "
+        "JOIN dictionary d ON d.id = s.entry_id "
+        f"WHERE d.headword IN ({placeholders}) "
+        "ORDER BY d.headword, s.level, s.label"
+    )
+    cur = conn.cursor()
+    cur.execute(query, uniq)
+    rows = cur.fetchall()
+
+    out: Dict[str, List[Dict[str, str]]] = {}
+    for row in rows:
+        headword = row["headword"]
+        if headword not in out:
+            out[headword] = []
+        out[headword].append(
+            {"label": row["label"], "content": row["content"]}
+        )
+    return out
+
+
 def build_lsj_context(
     client: OpenAI,
     model: str,
@@ -317,6 +348,32 @@ def format_lsj_context(lsj: Dict[str, Dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def format_sense_context(
+    lemma_items: List[LemmaItem], sense_map: Dict[str, List[Dict[str, str]]]
+) -> str:
+    if not sense_map:
+        return "(No LSJ senses found for the selected words.)"
+    lines = ["LSJ senses (by lemma):"]
+    seen = set()
+    for item in lemma_items:
+        lemma = item.lemma
+        if not lemma or lemma in seen:
+            continue
+        seen.add(lemma)
+        senses = sense_map.get(lemma)
+        if not senses:
+            continue
+        lines.append(f"- {lemma}:")
+        for sense in senses[:5]:
+            label = sense.get("label", "")
+            content = sense.get("content", "")
+            if label:
+                lines.append(f"  {label} {content}")
+            else:
+                lines.append(f"  {content}")
+    return "\n".join(lines)
+
+
 def analyze_text(
     client: OpenAI,
     model: str,
@@ -327,6 +384,9 @@ def analyze_text(
 ) -> str:
     lemma_items, lsj = build_lsj_context(client, model, text, targets)
     lsj_context = format_lsj_context(lsj)
+    conn = get_db()
+    sense_map = sense_lookup_by_headword(conn, [li.lemma for li in lemma_items])
+    sense_context = format_sense_context(lemma_items, sense_map)
 
     if mode == "translate":
         system = (
@@ -341,7 +401,8 @@ def analyze_text(
         user = (
             f"Translate the following Greek text into {target_lang}.\n\n"
             f"Text:\n{text}\n\n"
-            f"LSJ context:\n{lsj_context}"
+            f"LSJ context:\n{lsj_context}\n\n"
+            f"LSJ senses:\n{sense_context}"
         )
         if target_lang == "Japanese":
             system += " Respond strictly in Japanese."
@@ -366,7 +427,8 @@ def analyze_text(
             f"Text:\n{text}\n\n"
             f"If specific target words are provided, focus only on them.\n"
             f"Targets: {', '.join(targets) if targets else '(none)'}\n\n"
-            f"LSJ context:\n{lsj_context}"
+            f"LSJ context:\n{lsj_context}\n\n"
+            f"LSJ senses:\n{sense_context}"
         )
         if target_lang == "Japanese":
             system += " Respond strictly in Japanese for gloss and notes."
@@ -500,6 +562,7 @@ def analyze_text(
                 f"If specific target words are provided, focus only on them.\n"
                 f"Targets: {', '.join(targets) if targets else '(none)'}\n\n"
                 f"LSJ context:\n{lsj_context}\n\n"
+                f"LSJ senses:\n{sense_context}\n\n"
                 f"Use clause number {idx} in the id."
             )
             data = openai_json_response(
