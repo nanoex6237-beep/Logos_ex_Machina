@@ -13,7 +13,10 @@ from cltk import NLP
 from dotenv import load_dotenv
 from openai import OpenAI
 
-DB_PATH = os.path.join("data", "lsj.db")
+# app.py があるディレクトリの絶対パスを取得
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 基準ディレクトリ + data + lsj.db を結合
+DB_PATH = os.path.join(BASE_DIR, "data", "lsj.db")
 GREEK_WORD_RE = re.compile(r"[\u0370-\u03FF\u1F00-\u1FFF]+")
 LSJ_SNIPPET_LEN = 600
 MODEL_NAME = "gpt-4o"
