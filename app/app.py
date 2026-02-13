@@ -35,7 +35,13 @@ def load_env() -> None:
 
 
 def get_api_key() -> Optional[str]:
-    return os.getenv("OPENAI_API_KEY")
+    key = os.getenv("OPENAI_API_KEY")
+    if key:
+        return key
+    try:
+        return st.secrets.get("OPENAI_API_KEY")
+    except Exception:
+        return None
 
 
 @st.cache_resource
